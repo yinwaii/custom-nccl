@@ -8,6 +8,7 @@
 #include "devcomm.h"
 #include "comm.h"
 #include "topo.h"
+#include "pattern.h"
 
 NCCL_PARAM(Nthreads, "NTHREADS", -2);
 NCCL_PARAM(Ll128Nthreads, "LL128_NTHREADS", -2);
@@ -93,6 +94,20 @@ static const double perChMaxTreeBws[3][3] = {
   /* Ampere (N1/N2/N4) */ {24.0, 23.6, 17.8},
   /* Hopper (N1/N2/N4) */ {38.7, 41.4, 33.0},
 };
+
+template <int algo, int proto>
+int getMaxThreads(const struct ncclComm* comm, struct ncclTopoGraph* graph) {
+  if (Algo<algo>::standard)
+    return getNthreads("NCCL_NTHREADS", ncclParamNthreads(), Proto<proto>::minThreads, Proto<proto>::maxThreads, Proto<proto>::maxThreads);
+  else
+    return Proto<proto>::nonStandardThreads;
+}
+
+template <>
+int getMaxThreads<NCCL_ALGO_RING, NCCL_PROTO_SIMPLE>(const struct ncclComm* comm, struct ncclTopoGraph* graph) {
+  int simpleDefaultThreads = (graph->bwIntra * graph->nChannels <= PCI_BW) ? 256 : NCCL_SIMPLE_MAX_NTHREADS;
+  return getNthreads("NCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
+}
 
 ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph) {
   int simpleDefaultThreads = (ringGraph->bwIntra*ringGraph->nChannels <= PCI_BW) ? 256 : NCCL_SIMPLE_MAX_NTHREADS;
